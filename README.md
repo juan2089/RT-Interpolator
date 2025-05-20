@@ -24,3 +24,4 @@ Run: “install.packages(c("dplyr", "tidyverse", "ggpubr"))” in the console.
 
 - Enjoy!
 
+Note: The script was developed to use with PLGS exported files but it can be easily applied to any other platform. Please check the code.
