@@ -1,0 +1,83 @@
+---
+title: "HDX RT_interpolation"
+output: RT interpolation
+---
+
+Loading necessary libraries
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggpubr)
+```
+
+Loading necessary PLGS files. Load file using short LC gradient.
+
+```{r}
+PLGSshort=read.csv(file.choose())
+```
+
+Load PLGS file using long LC gradient.
+
+```{r}
+PLGSlong=read.csv(file.choose())
+```
+
+Filter PLGS files to only use "good" peptides. User can add/modify additional filters here if needed.
+Filters used:
+  - Minimum score: 6.62
+  - Minimum products: 2
+  - Minimum consecutive products: 1
+  - Minimum intensity: 1000
+  - Minimum sequence length: 5
+  - Maximum sequence length: 30
+  - Maximum MH+ error (ppm): 5
+  - Minimum sum intensity for products: 472
+  - Minimum products per amino acid: 0.11
+
+```{r}
+PLGSshort = PLGSshort %>% filter(peptide.score >=6.62, peptide.MatchedProducts >=2, peptide.ConsectiveMatchedProducts >=1, precursor.inten >1000, peptide.seqLength >=5, peptide.seqLength <=30, abs(peptidePrecursor.deltaMhpPPM)<=5, peptide.MatchedProductsSumInten >=472,(peptide.MatchedProducts/peptide.seqLength)>=0.11)
+
+PLGSlong = PLGSlong %>% filter(peptide.score >=6.62, peptide.MatchedProducts >=2, peptide.ConsectiveMatchedProducts >=1, precursor.inten >1000, peptide.seqLength >=5, peptide.seqLength <=30, abs(peptidePrecursor.deltaMhpPPM)<=5, peptide.MatchedProductsSumInten >=472,(peptide.MatchedProducts/peptide.seqLength)>=0.11)
+```
+
+Find common peptides in both filtered PLGS files and create single dataFrame with both RTs.
+
+```{r}
+merge_ALL=full_join(PLGSlong %>% mutate(id=row_number()), PLGSshort) %>% group_by(peptide.seq, precursor.retT) %>% summarise () %>%
+  group_by(peptide.seq) 
+
+merge_ALL=merge_ALL[merge_ALL$peptide.seq %in% merge_ALL$peptide.seq[duplicated(merge_ALL$peptide.seq)],]
+
+merge_ALL=merge_ALL %>%
+  group_by(peptide.seq) %>%
+  mutate(duplicate = ifelse(n() > 1, precursor.retT, NA)) %>% filter(duplicated(peptide.seq)|n()==1)
+
+colnames(merge_ALL) = c("sequence", "RT_long","RT_short")
+```
+
+Fit the data to a linear line, using a total least squares regression and create a plot with the equation.
+
+```{r}
+df = data.frame(y=merge_ALL$RT_long, x=merge_ALL$RT_short)
+pca <- prcomp(~x+y, df)
+slp <- with(pca, rotation[2,1] / rotation[1,1])
+int <- with(pca, center[2] - slp*center[1])
+
+plot = ggplot(merge_ALL, aes(x=RT_short,y=RT_long))+geom_point()+
+ geom_abline(slope=slp, intercept=int, color="blue", linewidth=1)+
+  annotate("text",x=6,y=30,label=paste("y=",signif(slp,digits=4)," x + (",signif(int,digits=4),")"))
+ 
+plot
+```
+
+Interpolate new RTs for all peptides and export as new .csv file and plot
+
+```{r}
+PLGSlong_newRT=PLGSlong        
+PLGSlong_newRT$precursor.retT=(PLGSlong_newRT$precursor.retT-int)/slp
+
+write.csv(PLGSlong_newRT,"PLGSlong_newRT.csv", row.names=FALSE)
+ggsave("RTplot.png",plot)
+```
+
